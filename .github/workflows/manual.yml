@@ -1,63 +1,43 @@
-name: build installer images
+name: Build Asahi Arch image
+
 on:
-  schedule:
-    - cron: "0 6 * * 1"
   workflow_dispatch:
+
 jobs:
   compile:
-    name: build installer images
     runs-on: ubuntu-24.04-arm
+
     steps:
-      - name: Check out the repo
+      - name: Checkout
         uses: actions/checkout@v6
-      - name: Display runner UID and GID
-        run: |
-          echo "Runner UID: $(id -u)"
-          echo "Runner GID: $(id -g)"
-        id: get_ids
-      - name: Delete huge unnecessary tools folder
-        run: rm -rf /opt/hostedtoolcache
-      - name: Run the build process with Docker
+
+      - name: Free disk space
+        run: sudo rm -rf /opt/hostedtoolcache
+
+      - name: Build image
         uses: addnab/docker-run-action@v3
         with:
           image: josdehaes/asahi-alarm-pkgbuild:latest
           options: >
-            -v ${{ github.workspace }}:/home/user/PKGBUILDs --user 1001:116 -e SSHPASS=${{ secrets.PASSWORD }} --privileged
-
+            -v ${{ github.workspace }}:/home/user/PKGBUILDs
+            --user 1001:116
+            --privileged
           run: |
             set -ex
-            df -h
-            sudo pacman -S --noconfirm arch-install-scripts sshpass wget rsync zip btrfs-progs
-            sudo ./build.sh
-            cd images
-            # first upload under a different name then rename all the files to the correct name because the upload can take a very long time 
-            sshpass -e scp -o StrictHostKeyChecking=no asahi-base.zip asahim@asahi-alarm.org:/public_html/base
-            # Note that batch mode must be set to no in conjuction with -b because of a bug in sftp
-            # if you use -b, it enables batch mode, which disables password authentication
-            sshpass -e sftp -o StrictHostKeyChecking=no -o BatchMode=no -b - asahim@asahi-alarm.org << EOF
-              rename /public_html/base /public_html/asahi-base.zip
-            EOF
-            sshpass -e scp -o StrictHostKeyChecking=no asahi-desktop.zip asahim@asahi-alarm.org:/public_html/desktop
-            sshpass -e sftp -o StrictHostKeyChecking=no -o BatchMode=no -b - asahim@asahi-alarm.org << EOF
-              rename /public_html/desktop /public_html/asahi-desktop.zip
-            EOF
-            sshpass -e scp -o StrictHostKeyChecking=no asahi-base-btrfs.zip asahim@asahi-alarm.org:/public_html/base-btrfs
-            sshpass -e sftp -o StrictHostKeyChecking=no -o BatchMode=no -b - asahim@asahi-alarm.org << EOF
-              rename /public_html/base-btrfs /public_html/asahi-base-btrfs.zip
-            EOF
-            sshpass -e scp -o StrictHostKeyChecking=no asahi-desktop-btrfs.zip asahim@asahi-alarm.org:/public_html/desktop-btrfs
-            sshpass -e sftp -o StrictHostKeyChecking=no -o BatchMode=no -b - asahim@asahi-alarm.org << EOF
-              rename /public_html/desktop-btrfs /public_html/asahi-desktop-btrfs.zip
-            EOF
+            sudo pacman -S --noconfirm \
+              arch-install-scripts \
+              wget \
+              rsync \
+              zip \
+              btrfs-progs
 
-            sshpass -e scp -o StrictHostKeyChecking=no uefi-only.zip asahim@asahi-alarm.org:/public_html/uefi-only
-            sshpass -e sftp -o StrictHostKeyChecking=no -o BatchMode=no -b - asahim@asahi-alarm.org << EOF
-              rename /public_html/uefi-only /public_html/uefi-only.zip
-            EOF
-  workflow-keepalive:
-    if: github.event_name == 'schedule'
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-    steps:
-      - uses: liskin/gh-workflow-keepalive@v1
+            sudo ./build.sh
+
+      - name: Upload Arch image
+        uses: actions/upload-artifact@v4
+        with:
+          name: asahi-arch
+          path: |
+            images/asahi-base.zip
+            images/uefi-only.zip
+          retention-days: 7
